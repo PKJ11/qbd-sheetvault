@@ -6,21 +6,41 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:migrate": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/migrate.ts",
+    "db:seed-demo": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/seed-demo.ts",
+    "db:profile": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/profile-db.ts",
+    "db:reset": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/reset-db.ts",
+    "audit:recent": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/recent-audit.ts",
+    "audit:verify": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/verify-audit.ts",
+    "test:e2e": "node --import tsx scripts/e2e.ts",
+    "test:engine": "node --conditions=react-server --import tsx scripts/test-engine.ts"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "exceljs": "^4.4.0",
+    "fast-formula-parser": "^1.0.19",
+    "jose": "^6.2.13",
+    "lucide-react": "^1.61.0",
     "next": "16.4.2",
+    "pg": "^8.23.1",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11",
+    "@electric-sql/pglite-socket": "^0.2.14",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

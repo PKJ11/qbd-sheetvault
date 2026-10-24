@@ -1,26 +1,205 @@
 @import "tailwindcss";
 
+@theme {
+  --color-brand-950: #12291d;
+  --color-brand-900: #1a3a2a;
+  --color-brand-800: #24543c;
+  --color-brand-700: #2d6a4f;
+  --color-brand-600: #40916c;
+  --color-brand-500: #52b788;
+  --color-brand-400: #74c69d;
+  --color-brand-300: #95d5b2;
+  --color-brand-200: #b7e4c7;
+  --color-brand-100: #d8f3dc;
+  --color-brand-50: #f0fdf4;
+  --color-page: #f4f6f8;
+  --font-sans: var(--font-inter), "Segoe UI", system-ui, sans-serif;
+  --font-win: "Segoe UI Variable Text", "Segoe UI", var(--font-inter), system-ui, sans-serif;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --win-bg: #f3f3f3;
+  --win-pane: #ffffff;
+  --win-border: #e5e5e5;
+  --win-hover: #f0f6fc;
+  --win-select: #cce8ff;
+  --win-select-border: #99d1ff;
+  --win-text: #1a1a1a;
+  --win-muted: #5f6368;
+  color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  background: var(--color-page);
+  color: #111827;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- Windows-style explorer ---------- */
+.win {
+  font-family: var(--font-win);
+  color: var(--win-text);
+  font-size: 13px;
+}
+.win-row:hover {
+  background: var(--win-hover);
+}
+.win-row.selected {
+  background: var(--win-select);
+  outline: 1px solid var(--win-select-border);
+  outline-offset: -1px;
+}
+.win-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 4px;
+  color: var(--win-text);
+  white-space: nowrap;
+}
+.win-btn:hover:not(:disabled) {
+  background: #e9e9e9;
+}
+.win-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.win-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+}
+.win-icon-btn:hover:not(:disabled) {
+  background: #e9e9e9;
+}
+.win-icon-btn:disabled {
+  opacity: 0.35;
+}
+.win-menu {
+  background: #f9f9f9;
+  border: 1px solid #d6d6d6;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  padding: 4px;
+  min-width: 220px;
+}
+.win-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 13px;
+}
+.win-menu-item:hover:not(:disabled) {
+  background: #e8e8e8;
+}
+.win-menu-item:disabled {
+  opacity: 0.4;
+}
+
+/* ---------- Spreadsheet grid ---------- */
+.sheet-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-family: Calibri, Carlito, "Segoe UI", sans-serif;
+}
+.sheet-grid td {
+  border-right: 1px solid #e1e1e1;
+  border-bottom: 1px solid #e1e1e1;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0 3px;
+  position: relative;
+  line-height: 1.2;
+}
+.sheet-grid th {
+  background: #f3f3f3;
+  color: #444;
+  font-weight: 400;
+  font-size: 11px;
+  border-right: 1px solid #d4d4d4;
+  border-bottom: 1px solid #d4d4d4;
+  position: sticky;
+  z-index: 2;
+  user-select: none;
+}
+.sheet-grid thead th {
+  top: 0;
+}
+.sheet-grid tbody th {
+  left: 0;
+  z-index: 1;
+}
+.sheet-grid thead th.corner {
+  left: 0;
+  z-index: 3;
+}
+.sheet-grid th.hl {
+  background: #d3f0e0;
+  color: #1a3a2a;
+  font-weight: 600;
+}
+.cell-input {
+  cursor: cell;
+}
+.cell-input::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(64, 145, 108, 0.35);
+}
+.cell-sel {
+  outline: 2px solid #217346;
+  outline-offset: -2px;
+  z-index: 1;
+}
+.cell-changed {
+  box-shadow: inset 0 0 0 2px #3b82f6;
+}
+.cell-ann-open::before,
+.cell-ann-addressed::before,
+.cell-ann-closed::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-style: solid;
+  border-width: 0 9px 9px 0;
+  z-index: 2;
+}
+.cell-ann-open::before {
+  border-color: transparent #dc2626 transparent transparent;
+}
+.cell-ann-addressed::before {
+  border-color: transparent #d97706 transparent transparent;
+}
+.cell-ann-closed::before {
+  border-color: transparent #16a34a transparent transparent;
+}
+.cell-error {
+  color: #b91c1c !important;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
 }
