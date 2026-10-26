@@ -4,6 +4,7 @@ import { actorOf, requireUser } from "@/lib/auth";
 import { one, tx } from "@/lib/db";
 import { fileAccess, verifyESignature } from "@/lib/files";
 import { body, HttpError, intParam, json, route } from "@/lib/http";
+import { activeSession } from "@/lib/sessions";
 import { eligibleReviewers } from "@/lib/workflow";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -20,6 +21,8 @@ export const POST = route<Ctx>(async (req, { params }) => {
     const { file, acl } = await fileAccess(u, id, "edit", db, true);
     if (file.status !== "DRAFT" && file.status !== "CHANGES_REQUESTED")
       throw new HttpError(409, "Only draft files or files with requested changes can be submitted.");
+    const checkout = await activeSession(id, db);
+    if (checkout) throw new HttpError(409, `This file is checked out in the Excel editor by ${checkout.user_name}. Check it in first.`);
     const open = await one<{ n: number }>("SELECT count(*)::int AS n FROM annotations WHERE file_id = $1 AND status = 'OPEN'", [id], db);
     if (open!.n > 0)
       throw new HttpError(409, `Respond to all ${open!.n} open annotation(s) before resubmitting.`);

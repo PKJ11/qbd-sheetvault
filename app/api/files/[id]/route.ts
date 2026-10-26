@@ -5,6 +5,8 @@ import { q, tx } from "@/lib/db";
 import { cleanName, fileAccess, requireReason, versionModel } from "@/lib/files";
 import { body, HttpError, intParam, json, route } from "@/lib/http";
 import { permList } from "@/lib/permissions";
+import { onlyofficeSettings } from "@/lib/onlyoffice";
+import { activeSession } from "@/lib/sessions";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -24,6 +26,7 @@ export const GET = route<Ctx>(async (req, { params }) => {
     reviews: { decision: string | null; reviewer_id: number; version_no: number }[] | null;
     owner: { full_name: string; employee_id: string } | null;
     last_reviewed: number | null;
+    checkout: { id: number; user_id: number; user_name: string; employee_id: string; started_at: string; working_saved_at: string | null; base_version: number } | null;
     changed: unknown[] | null;
   };
   const [[meta], model] = await Promise.all([
@@ -52,6 +55,9 @@ export const GET = route<Ctx>(async (req, { params }) => {
             WHERE r.file_id = $1) x) AS reviews,
          (SELECT json_build_object('full_name', full_name, 'employee_id', employee_id) FROM users WHERE id = $3) AS owner,
          (SELECT v FROM lr) AS last_reviewed,
+         (SELECT json_build_object('id', s.id, 'user_id', s.user_id, 'user_name', u.full_name, 'employee_id', u.employee_id,
+                                   'started_at', s.started_at, 'working_saved_at', s.working_saved_at, 'base_version', s.base_version)
+            FROM edit_sessions s JOIN users u ON u.id = s.user_id WHERE s.file_id = $1 AND s.status = 'ACTIVE') AS checkout,
          -- Cells changed since the version the last completed review looked at.
          (SELECT json_agg(x) FROM (
             SELECT DISTINCT ON (sheet, cell) sheet, cell, old_value, new_value, version_no
@@ -83,6 +89,8 @@ export const GET = route<Ctx>(async (req, { params }) => {
     activeReview,
     changedSinceReview: meta.changed ?? [],
     lastReviewedVersion: meta.last_reviewed,
+    checkout: meta.checkout ? { ...meta.checkout, mine: meta.checkout.user_id === u.id } : null,
+    editorAvailable: !!onlyofficeSettings(),
   });
 });
 
@@ -111,6 +119,8 @@ export const DELETE = route<Ctx>(async (req, { params }) => {
   const reason = requireReason(raw, "A reason for deletion");
   const { file, acl } = await fileAccess(u, id, "delete");
   if (file.status === "IN_REVIEW") throw new HttpError(409, "This file is under review. Withdraw or complete the review before deleting it.");
+  const checkout = await activeSession(id);
+  if (checkout) throw new HttpError(409, `This file is checked out in the Excel editor by ${checkout.user_name}.`);
   const actor = await actorOf(u);
   await tx(async (db) => {
     await db.query("UPDATE files SET deleted_at = now(), deleted_by = $2 WHERE id = $1", [id, u.id]);

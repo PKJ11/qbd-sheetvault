@@ -2,6 +2,9 @@
   "name": "qbd-sheetvault",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.9"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -14,6 +17,7 @@
     "audit:recent": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/recent-audit.ts",
     "audit:verify": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/verify-audit.ts",
     "test:e2e": "node --import tsx scripts/e2e.ts",
+    "test:integrity": "node --conditions=react-server --import tsx scripts/test-integrity.ts",
     "test:engine": "node --conditions=react-server --import tsx scripts/test-engine.ts"
   },
   "dependencies": {

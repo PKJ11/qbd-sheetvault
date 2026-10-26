@@ -81,4 +81,6 @@ export interface FileData {
   activeReview: Review | null;
   changedSinceReview: { sheet: string; cell: string; old_value: string | null; new_value: string | null; version_no: number }[];
   lastReviewedVersion: number | null;
+  checkout: { id: number; user_id: number; user_name: string; employee_id: string; started_at: string; working_saved_at: string | null; base_version: number; mine: boolean } | null;
+  editorAvailable: boolean;
 }

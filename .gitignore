@@ -42,3 +42,4 @@ next-env.d.ts
 
 # local demo notes
 *.local.md
+!.env.example

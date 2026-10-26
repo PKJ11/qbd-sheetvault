@@ -2,6 +2,8 @@
 
 import {
   ArrowLeft,
+  Lock,
+  Pencil,
   CheckCircle2,
   ChevronDown,
   Download,
@@ -27,6 +29,7 @@ import { useMe } from "../AppShell";
 import { ExcelIcon } from "../icons";
 import { Button, ReasonDialog, StatusBadge, useToast } from "../ui";
 import { AnnotationsPanel } from "./AnnotationsPanel";
+import { OnlyOfficeEditor } from "./OnlyOfficeEditor";
 import { SheetGrid, type AnnStatus } from "./SheetGrid";
 import { SubmitDialog } from "./SubmitDialog";
 import type { AnnotationMessage, FileData } from "./types";
@@ -99,7 +102,9 @@ export function SheetEditor({ id }: { id: number }) {
   const [messages, setMessages] = useState<AnnotationMessage[]>([]);
   const [activity, setActivity] = useState<AuditRow[] | null>(null);
   const [showChanged, setShowChanged] = useState(true);
-  const [dialog, setDialog] = useState<null | "save" | "submit" | "approve" | "reject" | "withdraw" | "revise">(null);
+  const [dialog, setDialog] = useState<null | "save" | "submit" | "approve" | "reject" | "withdraw" | "revise" | "checkin" | "discard">(null);
+  const [viewPref, setViewPref] = useState<"editor" | "grid" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [dlMenu, setDlMenu] = useState(false);
   const formulaRef = useRef<HTMLInputElement>(null);
 
@@ -142,7 +147,11 @@ export function SheetEditor({ id }: { id: number }) {
   const sheet = model?.sheets[sheetIdx];
   const f = data?.file;
   const isLatest = !!data && data.versionNo === data.file.current_version;
-  const canEditFile = !!data && isLatest && data.perms.includes("edit") && (f!.status === "DRAFT" || f!.status === "CHANGES_REQUESTED");
+  const editableStatus = !!data && isLatest && data.perms.includes("edit") && (f!.status === "DRAFT" || f!.status === "CHANGES_REQUESTED");
+  const checkout = data?.checkout ?? null;
+  const view = viewPref ?? (data?.editorAvailable ? "editor" : "grid");
+  // Grid editing is only possible when nobody has the file checked out in the Excel editor.
+  const canEditFile = editableStatus && !checkout;
   const isReviewer = !!data && data.isReviewer && f!.status === "IN_REVIEW" && isLatest;
   const canRespond = !!data && data.perms.includes("edit") && f!.status === "CHANGES_REQUESTED";
   const openAnns = data?.annotations.filter((a) => a.status === "OPEN").length ?? 0;
@@ -258,6 +267,53 @@ export function SheetEditor({ id }: { id: number }) {
             </div>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            {data.editorAvailable && (
+              <div className="flex rounded-md border border-gray-300 bg-gray-50 p-0.5 text-xs">
+                {(["editor", "grid"] as const).map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setViewPref(v)}
+                    disabled={v === "editor" && pending.size > 0}
+                    title={v === "editor" && pending.size > 0 ? "Save or discard grid changes first" : undefined}
+                    className={cx("rounded px-2.5 py-1 font-medium disabled:opacity-40", view === v ? "bg-white text-brand-800 shadow-sm" : "text-gray-600 hover:text-gray-900")}
+                  >
+                    {v === "editor" ? "Excel editor" : "Grid"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {view === "editor" && editableStatus && !checkout && (
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await api(`/api/files/${id}/checkout`, { method: "POST" });
+                    toast("Checked out — you can now edit in the Excel editor");
+                    load();
+                  } catch (e) {
+                    toast((e as Error).message, "err");
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <Pencil size={14} /> Edit in Excel
+              </Button>
+            )}
+            {checkout?.mine && isLatest && (
+              <>
+                <span className="text-xs font-medium text-blue-700">Checked out to you</span>
+                <Button size="sm" onClick={() => setDialog("discard")}>
+                  <Undo2 size={14} /> Discard
+                </Button>
+                <Button size="sm" variant="primary" onClick={() => setDialog("checkin")}>
+                  <Save size={14} /> Check in
+                </Button>
+              </>
+            )}
             {canEditFile && pending.size > 0 && (
               <>
                 <span className="text-xs font-medium text-blue-700">{pending.size} unsaved change{pending.size > 1 ? "s" : ""}</span>
@@ -334,13 +390,29 @@ export function SheetEditor({ id }: { id: number }) {
         )}
         {isReviewer && (
           <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-900">
-            You are the reviewer. Select a cell and add annotations in the side panel. {addressedAnns > 0 && `${addressedAnns} annotation(s) were addressed by the author — close or re-open them.`} Cells changed since the last review are outlined in blue.
+            You are the reviewer. {view === "grid" ? "Select a cell and add annotations in the side panel." : "Type the cell reference (e.g. B18) in the side panel to annotate it, or switch to Grid to pick cells."}{" "}
+            {addressedAnns > 0 && `${addressedAnns} annotation(s) were addressed by the author — close or re-open them.`} Cells changed since the last review are outlined in blue in the Grid view.
+          </div>
+        )}
+        {checkout && !checkout.mine && isLatest && (
+          <div className="mt-2 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+            <Lock size={13} /> Checked out in the Excel editor by <b>{checkout.user_name}</b> ({checkout.employee_id}) since {fmtDate(checkout.started_at)}. You see the last checked-in version.
+            {user.roles.includes("ADMIN") && (
+              <button className="ml-auto font-semibold underline" onClick={() => setDialog("discard")}>
+                Release check-out
+              </button>
+            )}
+          </div>
+        )}
+        {checkout?.mine && isLatest && view === "editor" && (
+          <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-900">
+            Edit the input cells in the Excel editor below. Your work is kept as a working copy; nobody else can edit until you <b>Check in</b> (creates v{f.current_version + 1} with a reason) or <b>Discard</b>. Locked cells, formulas and sheet protection must stay unchanged.
           </div>
         )}
       </div>
 
       {/* Formula bar */}
-      <div className="flex items-center gap-2 border-b border-gray-200 bg-[#f8f9fa] px-3 py-1 text-[12px]">
+      <div className={cx("flex items-center gap-2 border-b border-gray-200 bg-[#f8f9fa] px-3 py-1 text-[12px]", view === "editor" && "hidden")}>
         <div className="w-28 shrink-0 rounded border border-gray-300 bg-white px-2 py-0.5 font-mono text-[11px]">{sel ? `${sheet.name}!${sel}` : ""}</div>
         <span className="font-serif italic text-gray-500">fx</span>
         <input
@@ -365,7 +437,15 @@ export function SheetEditor({ id }: { id: number }) {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
+        {view === "editor" && (
+          <div className="relative flex min-w-0 flex-1 flex-col">
+            <OnlyOfficeEditor fileId={id} version={isLatest ? undefined : data.versionNo} reloadKey={`${data.versionNo}-${checkout?.id ?? "none"}-${checkout?.mine ? "edit" : "view"}`} />
+            <button className="win-icon-btn absolute bottom-1 right-1 z-10 h-6 w-6 bg-white/80" title={panelOpen ? "Hide panel" : "Show panel"} onClick={() => setPanelOpen((o) => !o)}>
+              {panelOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+            </button>
+          </div>
+        )}
+        <div className={cx("flex min-w-0 flex-1 flex-col", view === "editor" && "hidden")}>
           <div className="min-h-0 flex-1">
             <SheetGrid
               key={sheet.name}
@@ -431,7 +511,8 @@ export function SheetEditor({ id }: { id: number }) {
                   activeReviewId={data.activeReview?.id ?? null}
                   canAnnotate={isReviewer}
                   canRespond={canRespond && isLatest}
-                  selectedCell={sel ? { sheet: sheet.name, cell: sel } : null}
+                  selectedCell={view === "grid" && sel ? { sheet: sheet.name, cell: sel } : null}
+                  sheetNames={view === "editor" ? model.sheets.map((s) => s.name) : undefined}
                   onJump={jump}
                   onChanged={() => (load(), refreshBadges())}
                   currentUserId={user.id}
@@ -590,6 +671,36 @@ export function SheetEditor({ id }: { id: number }) {
             await api(`/api/files/${id}/withdraw`, { body: { reason } });
             toast("Review withdrawn");
             await load();
+          }}
+        />
+      )}
+      {dialog === "checkin" && (
+        <ReasonDialog
+          title="Check in from the Excel editor"
+          confirmLabel="Check in"
+          reasonLabel="Reason for change"
+          message={`SheetVault takes the latest content from the editor, checks that locked cells, formulas and sheet protection are unchanged, and saves it as v${f.current_version + 1}. Every changed input cell is recorded in the audit trail.`}
+          onClose={() => setDialog(null)}
+          onConfirm={async (reason) => {
+            const r = await api<{ version: number; changes: number }>(`/api/files/${id}/checkin`, { body: { reason } });
+            toast(`Checked in as version ${r.version} (${r.changes} cell change${r.changes === 1 ? "" : "s"})`);
+            load();
+          }}
+        />
+      )}
+      {dialog === "discard" && (
+        <ReasonDialog
+          title={checkout?.mine ? "Discard check-out" : `Release check-out of ${checkout?.user_name}`}
+          confirmLabel={checkout?.mine ? "Discard changes" : "Release"}
+          danger
+          reasonRequired={!checkout?.mine}
+          reasonLabel="Reason"
+          message={checkout?.mine ? "Your unsaved editor changes are thrown away and the file is released. No new version is created." : "The holder's unsaved editor changes are thrown away and the file is released. This is recorded in the audit trail."}
+          onClose={() => setDialog(null)}
+          onConfirm={async (reason) => {
+            await api(`/api/files/${id}/discard`, { body: { reason } });
+            toast("Check-out released");
+            load();
           }}
         />
       )}

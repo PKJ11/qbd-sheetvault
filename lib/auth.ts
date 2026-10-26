@@ -43,7 +43,8 @@ export async function setSessionCookie(u: Pick<User, "id" | "session_version" | 
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    // HTTPS-only in production, unless the site is deliberately served over plain HTTP on the office LAN.
+    secure: process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "false",
     path: "/",
     maxAge: SESSION_HOURS * 3600,
   });

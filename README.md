@@ -41,6 +41,42 @@ the temporary password `Qbd@1234` and must change it at their first sign-in.
 | `npm run test:engine` | Check the formula engine against the values Excel cached in `seed/*.xlsx` |
 | `npm run test:e2e` | 95-check API workflow test (writes data; run against a dev DB with a running server) |
 
+## Excel editor (ONLYOFFICE Docs Community)
+
+When `ONLYOFFICE_URL`, `ONLYOFFICE_JWT_SECRET` and `APP_INTERNAL_URL` are set, workbooks open in a real spreadsheet
+editor (ONLYOFFICE). There's also a **Grid** view, which is the built-in renderer.
+
+- **Edit in Excel** checks the workbook out to one user. Nobody else can edit, submit or delete it until it is checked in
+  or discarded. An admin can release a forgotten check-out; the reason is audited.
+- The editor works on a **working copy**. **Check in** asks for a reason for change and pulls the latest content from
+  the editor. It then verifies that no formula, locked cell, cell-lock setting, sheet or sheet protection changed, and
+  stores the file as a new version with a cell-by-cell change log. Check-ins that alter the validated template are
+  refused and audited (`CHECKIN_REJECTED_INTEGRITY`).
+- Everyone else, and approved or in-review files, get a read-only editor view. Downloads stay in SheetVault, so they're audited.
+
+## Windows Server deployment (no Docker, NSSM)
+
+**Step-by-step guide: [docs/DEPLOY-WINDOWS.md](docs/DEPLOY-WINDOWS.md).** Summary:
+
+1. Install **Node.js 22 LTS**. Put `nssm.exe` (2.24-101 pre-release) on PATH. The database is **Neon** (cloud) for now,
+   so no local PostgreSQL is needed for SheetVault.
+2. Install **ONLYOFFICE Docs Community for Windows** (version 10.x):
+   `onlyoffice-documentserver.exe /SILENT /DS_PORT=8080`. It registers its own services (WinSW). Version 10 on Windows
+   runs its converter and queue **in memory**: log line *"memory runtime detected"*. **RabbitMQ/Erlang are not needed.**
+   `scripts\windows\install-rabbitmq.ps1` exists only for setups that are explicitly configured to use RabbitMQ.
+3. In `C:\Program Files\ONLYOFFICE\DocumentServer\config\local.json`, note the JWT secret
+   (`services.CoAuthoring.secret.inbox.string`). Set `services.CoAuthoring.request-filtering-agent.allowPrivateIPAddress`
+   to `true` so it can fetch files from SheetVault on the same server. Restart the `ds-*` services.
+4. *(Optional, only if moving off Neon)* `scripts\windows\create-database.ps1` creates a local `sheetvault` database.
+5. Copy `.env.example` to `.env.local` and fill it in: the Neon `DATABASE_URL`, `AUTH_SECRET`, the ONLYOFFICE values,
+   and `COOKIE_SECURE=false` for plain-HTTP LAN access.
+6. `powershell -ExecutionPolicy Bypass -File scripts\windows\install-service.ps1` installs dependencies, migrates,
+   builds, and registers and starts the **SheetVault** NSSM service on port 3000 (auto-start, restart on crash,
+   rotating logs in `logs\`).
+7. Open `http://<server>:3000` and sign in as `ADMIN` / `Qbd@1234`.
+
+Updating: `nssm stop SheetVault`, copy the new code, then run `install-service.ps1` again.
+
 ## Deploying to Vercel
 
 Create a new Vercel project from this folder and set `DATABASE_URL` and `AUTH_SECRET` as environment variables.

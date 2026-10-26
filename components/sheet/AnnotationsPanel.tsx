@@ -25,7 +25,10 @@ export function AnnotationsPanel({
   onJump,
   onChanged,
   currentUserId,
+  sheetNames,
 }: {
+  /** When set (Excel editor view), the reviewer types the cell reference instead of clicking it. */
+  sheetNames?: string[];
   fileId: number;
   annotations: Annotation[];
   messages: AnnotationMessage[];
@@ -44,8 +47,13 @@ export function AnnotationsPanel({
   const [busy, setBusy] = useState(false);
   const [replyFor, setReplyFor] = useState<number | null>(null);
   const [reply, setReply] = useState("");
+  const [typedSheet, setTypedSheet] = useState(sheetNames?.[0] ?? "");
+  const [typedCell, setTypedCell] = useState("");
+  const typed = typedCell.trim().toUpperCase().replace(/\$/g, "");
+  const typedValid = /^[A-Z]{1,3}[1-9]\d{0,6}$/.test(typed);
+  const target = sheetNames ? (typedValid ? { sheet: typedSheet || sheetNames[0], cell: typed } : null) : selectedCell;
 
-  const run = async (fn: () => Promise<unknown>, ok: string) => {
+  const run =async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true);
     try {
       await fn();
@@ -61,9 +69,10 @@ export function AnnotationsPanel({
   const add = () =>
     run(async () => {
       await api(`/api/files/${fileId}/annotations`, {
-        body: { sheet: pin && selectedCell ? selectedCell.sheet : null, cell: pin && selectedCell ? selectedCell.cell : null, comment: text },
+        body: { sheet: pin && target ? target.sheet : null, cell: pin && target ? target.cell : null, comment: text },
       });
       setText("");
+      setTypedCell("");
     }, "Annotation added");
 
   const act = (id: number, action: "respond" | "close" | "reopen", t?: string) =>
@@ -83,13 +92,28 @@ export function AnnotationsPanel({
         <div className="border-b border-gray-200 bg-amber-50/60 p-3">
           <div className="mb-1.5 text-xs font-semibold text-gray-800">Add annotation</div>
           <textarea className={cx(inputCls, "text-xs")} rows={3} placeholder="Describe the issue or the change required…" value={text} onChange={(e) => setText(e.target.value)} />
+          {sheetNames && (
+            <div className="mt-2 flex items-center gap-1.5">
+              {sheetNames.length > 1 && (
+                <select className={cx(inputCls, "h-7 w-28 py-0 text-xs")} value={typedSheet} onChange={(e) => setTypedSheet(e.target.value)}>
+                  {sheetNames.map((n) => (
+                    <option key={n}>{n}</option>
+                  ))}
+                </select>
+              )}
+              <input className={cx(inputCls, "h-7 w-24 py-0 font-mono text-xs uppercase")} placeholder="Cell e.g. B18" value={typedCell} onChange={(e) => setTypedCell(e.target.value)} />
+              {typedCell && !typedValid && <span className="text-[10px] text-red-600">invalid cell</span>}
+            </div>
+          )}
           <div className="mt-2 flex items-center justify-between gap-2">
             <label className="flex items-center gap-1.5 text-[11px] text-gray-700">
-              <input type="checkbox" className="accent-brand-700" checked={pin} onChange={(e) => setPin(e.target.checked)} disabled={!selectedCell} />
-              {selectedCell ? (
+              <input type="checkbox" className="accent-brand-700" checked={pin} onChange={(e) => setPin(e.target.checked)} disabled={!target} />
+              {target ? (
                 <>
-                  Pin to cell <b>{selectedCell.sheet}!{selectedCell.cell}</b>
+                  Pin to cell <b>{target.sheet}!{target.cell}</b>
                 </>
+              ) : sheetNames ? (
+                "Type a cell to pin (or leave general)"
               ) : (
                 "Select a cell to pin (or leave general)"
               )}
