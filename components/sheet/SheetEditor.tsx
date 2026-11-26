@@ -444,6 +444,11 @@ export function SheetEditor({ id }: { id: number }) {
             Edit the input cells in the Excel editor below. Your work is kept as a working copy; nobody else can edit until you <b>Check in</b> (creates v{f.current_version + 1} with a reason) or <b>Discard</b>. Locked cells, formulas and sheet protection must stay unchanged.
           </div>
         )}
+        {checkout?.mine && isLatest && view === "grid" && (
+          <div className="mt-2 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+            <Lock size={13} /> The grid is read-only because this workbook is checked out to you in the Excel editor (since {fmtDate(checkout.started_at)}). Finish there with <b>Check in</b>, or <b>Discard</b> the check-out to edit input cells in the grid instead.
+          </div>
+        )}
       </div>
 
       {/* Formula bar */}
@@ -465,7 +470,13 @@ export function SheetEditor({ id }: { id: number }) {
         />
         {selCell && (
           <span className={cx("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold", selCell.u && !selCell.f ? "bg-brand-100 text-brand-800" : "bg-gray-200 text-gray-600")}>
-            {selCell.f ? "Formula (locked)" : selCell.u ? (canEditFile ? "Input cell" : "Input cell (read-only now)") : "Locked"}
+            {selCell.f ? "Formula (locked)" : selCell.u
+              ? canEditFile
+                ? "Input cell"
+                : checkout && isLatest
+                  ? "Input cell (read-only: checked out in Excel editor)"
+                  : "Input cell (read-only now)"
+              : "Locked"}
           </span>
         )}
         {selAnns.length > 0 && <span className="shrink-0 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">{selAnns.length} annotation(s)</span>}
