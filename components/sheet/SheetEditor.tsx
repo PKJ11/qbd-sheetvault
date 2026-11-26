@@ -14,9 +14,9 @@ import {
   MessageSquare,
   PanelRightClose,
   PanelRightOpen,
-  RotateCcw,
   Save,
   Send,
+  ShieldCheck,
   Undo2,
   XCircle,
   ZoomIn,
@@ -26,6 +26,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMe } from "../AppShell";
+import { CellChangesButton, changesOf } from "../CellChanges";
 import { ExcelIcon } from "../icons";
 import { Button, ReasonDialog, StatusBadge, useToast } from "../ui";
 import { AnnotationsPanel } from "./AnnotationsPanel";
@@ -58,7 +59,12 @@ const ACTION_LABEL: Record<string, string> = {
   FILE_SUBMITTED_FOR_REVIEW: "Submitted for review",
   FILE_RESUBMITTED: "Resubmitted",
   CHANGES_REQUESTED: "Changes requested",
-  FILE_APPROVED: "Approved",
+  MANAGER_APPROVED_SENT_TO_QA: "Manager approved, sent to QA",
+  FILE_APPROVED: "QA approved (final)",
+  FILE_FILED_TO_QA: "Copy filed in Quality Assurance",
+  FILE_QA_COPY_CREATED: "QA-approved copy created",
+  FILE_CHECKED_OUT: "Checked out",
+  FILE_CHECKED_IN: "Checked in",
   REVIEW_WITHDRAWN: "Review withdrawn",
   REVISION_STARTED: "Revision started",
   ANNOTATION_ADDED: "Annotation added",
@@ -102,7 +108,7 @@ export function SheetEditor({ id }: { id: number }) {
   const [messages, setMessages] = useState<AnnotationMessage[]>([]);
   const [activity, setActivity] = useState<AuditRow[] | null>(null);
   const [showChanged, setShowChanged] = useState(true);
-  const [dialog, setDialog] = useState<null | "save" | "submit" | "approve" | "reject" | "withdraw" | "revise" | "checkin" | "discard">(null);
+  const [dialog, setDialog] = useState<null | "save" | "submit" | "approve" | "reject" | "withdraw" | "checkin" | "discard">(null);
   const [viewPref, setViewPref] = useState<"editor" | "grid" | null>(null);
   const [busy, setBusy] = useState(false);
   const [dlMenu, setDlMenu] = useState(false);
@@ -152,7 +158,8 @@ export function SheetEditor({ id }: { id: number }) {
   const view = viewPref ?? (data?.editorAvailable ? "editor" : "grid");
   // Grid editing is only possible when nobody has the file checked out in the Excel editor.
   const canEditFile = editableStatus && !checkout;
-  const isReviewer = !!data && data.isReviewer && f!.status === "IN_REVIEW" && isLatest;
+  const stage = data?.activeReview?.stage ?? null;
+  const isReviewer = !!data && data.isReviewer && (f!.status === "IN_REVIEW" || f!.status === "QA_REVIEW") && isLatest;
   const canRespond = !!data && data.perms.includes("edit") && f!.status === "CHANGES_REQUESTED";
   const openAnns = data?.annotations.filter((a) => a.status === "OPEN").length ?? 0;
   const addressedAnns = data?.annotations.filter((a) => a.status === "ADDRESSED").length ?? 0;
@@ -263,7 +270,8 @@ export function SheetEditor({ id }: { id: number }) {
             <div className="text-[11px] text-gray-500">
               v{data.versionNo}
               {!isLatest && ` of ${f.current_version}`} · saved {fmtDate(data.version.created_at)} by {data.version.by} · Author: {f.owner_name}
-              {data.activeReview && ` · Reviewer: ${data.activeReview.reviewer_name}`}
+              {data.activeReview &&
+                (data.activeReview.stage === "QA" ? " · Waiting for: QA department" : ` · Department manager: ${data.activeReview.reviewer_name}`)}
             </div>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -336,18 +344,13 @@ export function SheetEditor({ id }: { id: number }) {
                   <XCircle size={14} /> Request changes
                 </Button>
                 <Button size="sm" variant="primary" onClick={() => setDialog("approve")}>
-                  <CheckCircle2 size={14} /> Approve
+                  <CheckCircle2 size={14} /> {stage === "QA" ? "QA approve (final)" : "Approve & send to QA"}
                 </Button>
               </>
             )}
             {f.status === "IN_REVIEW" && isLatest && data.activeReview && (data.activeReview.submitted_by === user.id || data.isOwner) && (
               <Button size="sm" onClick={() => setDialog("withdraw")}>
                 <Undo2 size={14} /> Withdraw
-              </Button>
-            )}
-            {f.status === "APPROVED" && isLatest && data.perms.includes("edit") && (
-              <Button size="sm" onClick={() => setDialog("revise")}>
-                <RotateCcw size={14} /> Start new revision
               </Button>
             )}
             <div className="relative">
@@ -385,12 +388,44 @@ export function SheetEditor({ id }: { id: number }) {
         )}
         {isLatest && f.status === "CHANGES_REQUESTED" && data.perms.includes("edit") && (
           <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
-            The reviewer requested changes. Update the input cells, save a new version, respond to each open annotation ({openAnns} open), then resubmit.
+            {data.reviews.find((r) => r.decision === "CHANGES_REQUESTED")?.stage === "QA" ? "QA" : "The department manager"} requested changes. Update the input cells, save a new version, respond to each open annotation ({openAnns} open), then resubmit. It goes to the department manager again, then to QA.
+          </div>
+        )}
+        {f.status === "QA_REVIEW" && !isReviewer && isLatest && (
+          <div className="mt-2 flex items-center gap-2 rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs text-violet-900">
+            <ShieldCheck size={13} /> Approved by the department manager. Waiting for final approval by anyone in the QA department. The workbook is locked.
+          </div>
+        )}
+        {f.status === "APPROVED" && isLatest && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-1 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-xs text-green-900">
+            <Lock size={13} />
+            {data.source ? (
+              <>
+                QA-approved copy of
+                <Link className="font-semibold underline" href={`/files/${data.source.id}`}>
+                  {data.source.name}
+                </Link>
+                — locked permanently, nobody can change it.
+              </>
+            ) : (
+              <>QA-approved — this workbook is locked permanently, nobody can change it.</>
+            )}
+            {data.qaCopy && (
+              <>
+                <span className="ml-1">Copy filed in Quality Assurance:</span>
+                <Link className="font-semibold underline" href={`/files/${data.qaCopy.id}`}>
+                  {data.qaCopy.name}
+                </Link>
+              </>
+            )}
           </div>
         )}
         {isReviewer && (
-          <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-900">
-            You are the reviewer. {view === "grid" ? "Select a cell and add annotations in the side panel." : "Type the cell reference (e.g. B18) in the side panel to annotate it, or switch to Grid to pick cells."}{" "}
+          <div className={cx("mt-2 rounded-md border px-3 py-1.5 text-xs", stage === "QA" ? "border-violet-200 bg-violet-50 text-violet-900" : "border-blue-200 bg-blue-50 text-blue-900")}>
+            {stage === "QA"
+              ? "QA review: the department manager has approved this workbook. Approving gives the final approval, locks it permanently and files a copy in Quality Assurance. Requesting changes sends it back to the author."
+              : "You are the department manager reviewing this workbook. Approving sends it to the QA department for final approval."}{" "}
+            {view === "grid" ? "Select a cell and add annotations in the side panel." : "Type the cell reference (e.g. B18) in the side panel to annotate it, or switch to Grid to pick cells."}{" "}
             {addressedAnns > 0 && `${addressedAnns} annotation(s) were addressed by the author — close or re-open them.`} Cells changed since the last review are outlined in blue in the Grid view.
           </div>
         )}
@@ -506,6 +541,7 @@ export function SheetEditor({ id }: { id: number }) {
               {panel === "annotations" && (
                 <AnnotationsPanel
                   fileId={id}
+                  activeStage={stage}
                   annotations={data.annotations}
                   messages={messages}
                   activeReviewId={data.activeReview?.id ?? null}
@@ -577,14 +613,19 @@ export function SheetEditor({ id }: { id: number }) {
                         {r.user_name} ({r.employee_id})
                       </div>
                       {r.reason && <div className="mt-0.5 text-gray-700">Reason: {r.reason}</div>}
-                      {Array.isArray(r.details?.changes) && (
-                        <ul className="mt-1 space-y-0.5">
-                          {(r.details!.changes as { cell: string; old: unknown; new: unknown }[]).slice(0, 8).map((c) => (
-                            <li key={c.cell} className="font-mono text-[10px]">
-                              {c.cell}: {String(c.old ?? "∅")} → {String(c.new ?? "∅")}
-                            </li>
-                          ))}
-                        </ul>
+                      {changesOf(r.details) && (
+                        <div className="mt-1 text-[11px]">
+                          <CellChangesButton
+                            changes={changesOf(r.details)!}
+                            context={{
+                              file: f.name,
+                              who: `${r.user_name} (${r.employee_id})`,
+                              when: fmtDate(r.ts),
+                              reason: r.reason,
+                              version: r.details?.fromVersion !== undefined ? `v${String(r.details.fromVersion)} → v${String(r.details.toVersion)}` : null,
+                            }}
+                          />
+                        </div>
                       )}
                     </div>
                   ))}
@@ -641,21 +682,21 @@ export function SheetEditor({ id }: { id: number }) {
       )}
       {(dialog === "approve" || dialog === "reject") && (
         <ReasonDialog
-          title={dialog === "approve" ? "Approve workbook" : "Request changes"}
-          confirmLabel={dialog === "approve" ? "Sign & approve" : "Sign & send back"}
+          title={dialog === "approve" ? (stage === "QA" ? "QA approval (final)" : "Approve and send to QA") : "Request changes"}
+          confirmLabel={dialog === "approve" ? (stage === "QA" ? "Sign & approve" : "Sign & send to QA") : "Sign & send back"}
           danger={dialog === "reject"}
           requireSignature
           reasonRequired={dialog === "reject"}
           reasonLabel={dialog === "approve" ? "Approval comments" : "Summary for the author"}
           message={
             dialog === "approve"
-              ? `Approving v${f.current_version} locks the workbook as approved.${addressedAnns ? ` ${addressedAnns} addressed annotation(s) will be closed.` : ""}${openAnns ? ` ${openAnns} annotation(s) are still open — close or delete them first.` : ""}`
-              : `The workbook goes back to ${f.owner_name} with ${openAnns} open annotation(s).`
+              ? `${stage === "QA" ? `Final approval of v${f.current_version}: the workbook is locked permanently (nobody can change it again) and a copy is filed in Quality Assurance \\ ${data.path.map((p) => p.name).join(" \\ ")}.` : `Approving v${f.current_version} sends it to the QA department for final approval. It stays locked meanwhile.`}${addressedAnns ? " Addressed annotations from this stage will be closed." : ""}${openAnns ? ` ${openAnns} annotation(s) are still open — close or delete them first.` : ""}`
+              : `The workbook goes back to ${f.owner_name} with ${openAnns} open annotation(s).${stage === "QA" ? " After the corrections it goes to the department manager again, then back to QA." : ""}`
           }
           onClose={() => setDialog(null)}
           onConfirm={async (comment, password) => {
             await api(`/api/files/${id}/decision`, { body: { decision: dialog === "approve" ? "APPROVED" : "CHANGES_REQUESTED", comment, password } });
-            toast(dialog === "approve" ? "Workbook approved" : "Changes requested");
+            toast(dialog === "approve" ? (stage === "QA" ? "Approved by QA — copy filed in Quality Assurance" : "Approved and sent to QA") : "Changes requested");
             await load();
             refreshBadges();
           }}
@@ -701,20 +742,6 @@ export function SheetEditor({ id }: { id: number }) {
             await api(`/api/files/${id}/discard`, { body: { reason } });
             toast("Check-out released");
             load();
-          }}
-        />
-      )}
-      {dialog === "revise" && (
-        <ReasonDialog
-          title="Start a new revision"
-          confirmLabel="Start revision"
-          reasonLabel="Reason for revision"
-          message="The approved version stays in the history. The workbook returns to Draft so input cells can be edited and re-approved."
-          onClose={() => setDialog(null)}
-          onConfirm={async (reason) => {
-            await api(`/api/files/${id}/revise`, { body: { reason } });
-            toast("Revision started");
-            await load();
           }}
         />
       )}

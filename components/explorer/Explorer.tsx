@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  ExternalLink,
   FilePlus2,
   FolderPlus,
   Info,
@@ -233,6 +234,26 @@ export function Explorer() {
     }
   };
 
+  // Repeated clicks must not make the browser select the word under the cursor.
+  const noTextSelect = (e: React.MouseEvent) => {
+    if (e.detail > 1) e.preventDefault();
+  };
+  // A single click (or tap) opens a folder or workbook. Ctrl/Cmd/Shift+click, right-click or the arrow keys
+  // select without opening (for Rename, Delete, Properties).
+  const itemHandlers = (target: NonNullable<Sel>) => ({
+    onMouseDown: noTextSelect,
+    onClick: (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (e.ctrlKey || e.metaKey || e.shiftKey) return setSel(target);
+      // Users used to double-clicking: the first click opens, the second must not open whatever is now under the cursor.
+      if (e.detail > 1) return;
+      setSel(target);
+      open(target);
+    },
+    onDoubleClick: () => window.getSelection()?.removeAllRanges(),
+    onContextMenu: (e: React.MouseEvent) => ctx(e, target),
+  });
+
   const sortBy = (key: SortKey) => setSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : 1 }));
   const SortHead = ({ k, label, className }: { k: SortKey; label: string; className?: string }) => (
     <th className={cx("sticky top-0 z-10 bg-white px-2 py-1.5 text-left text-[12px] font-normal text-gray-600 hover:bg-[#f0f6fc]", className)}>
@@ -253,6 +274,8 @@ export function Explorer() {
         <div
           className={cx("flex h-7 cursor-default items-center gap-1 rounded pr-2 text-[13px]", active ? "bg-[#cce8ff]" : "hover:bg-[#e9e9e9]")}
           style={{ paddingLeft: 6 + depth * 14 }}
+          title={node.name}
+          onMouseDown={noTextSelect}
           onClick={() => (node.locked ? setShowDenied({ id: node.id, name: node.name }) : go(node.id))}
         >
           <button
@@ -302,7 +325,7 @@ export function Explorer() {
   const crumbs = denied ? denied.path : data?.path ?? [];
 
   return (
-    <div className="win flex flex-1 flex-col p-3 md:p-4" onClick={() => (setMenu(null), setNewMenu(false))}>
+    <div className="win flex flex-1 select-none flex-col p-3 md:p-4" onClick={() => (setMenu(null), setNewMenu(false))}>
       <div className="flex min-h-[560px] flex-1 flex-col overflow-hidden rounded-lg border border-[#d6d6d6] bg-[var(--win-bg)] shadow-md">
         {/* Title bar */}
         <div className="flex h-9 items-center gap-2 border-b border-[#e5e5e5] bg-[#eeeeee] px-3 text-[12px]">
@@ -341,7 +364,7 @@ export function Explorer() {
             ))}
           </div>
           <div className="flex h-8 w-56 items-center gap-2 rounded border border-[#d6d6d6] bg-white px-2 max-md:hidden">
-            <input className="min-w-0 flex-1 bg-transparent text-[13px] outline-none" placeholder={`Search ${cur?.name ?? "SheetVault"}`} value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <input className="min-w-0 flex-1 select-text bg-transparent text-[13px] outline-none" placeholder={`Search ${cur?.name ?? "SheetVault"}`} value={filter} onChange={(e) => setFilter(e.target.value)} />
             <Search size={14} className="text-gray-500" />
           </div>
         </div>
@@ -368,6 +391,9 @@ export function Explorer() {
             )}
           </div>
           <span className="mx-1 h-5 w-px bg-gray-300" />
+          <button className="win-btn" disabled={!sel} onClick={() => sel && open(sel)} title="Open (Enter)">
+            <ExternalLink size={15} /> <span className="max-sm:hidden">Open</span>
+          </button>
           <button className="win-btn" disabled={atRoot || !can("upload")} onClick={() => fileInput.current?.click()} title="Upload .xlsx files">
             <Upload size={15} /> <span className="max-sm:hidden">Upload</span>
           </button>
@@ -404,6 +430,7 @@ export function Explorer() {
           <aside className="w-60 shrink-0 overflow-auto border-r border-[#e5e5e5] bg-[#f9f9f9] p-1.5 max-md:hidden">
             <div
               className={cx("flex h-7 cursor-default items-center gap-1.5 rounded px-2 text-[13px]", atRoot ? "bg-[#cce8ff]" : "hover:bg-[#e9e9e9]")}
+              onMouseDown={noTextSelect}
               onClick={() => go(null)}
             >
               <PcIcon size={16} />
@@ -460,10 +487,9 @@ export function Explorer() {
                     return (
                       <tr
                         key={x.kind + x.f.id}
-                        className={cx("win-row cursor-default text-[13px]", selected && "selected", x.f.locked && "text-gray-500")}
-                        onClick={(e) => (e.stopPropagation(), setSel({ type: x.kind, id: x.f.id }))}
-                        onDoubleClick={() => open({ type: x.kind, id: x.f.id })}
-                        onContextMenu={(e) => ctx(e, { type: x.kind, id: x.f.id })}
+                        className={cx("win-row cursor-pointer text-[13px]", selected && "selected", x.f.locked && "text-gray-500")}
+                        title={x.f.name}
+                        {...itemHandlers({ type: x.kind, id: x.f.id })}
                       >
                         <td className="py-[5px] pl-4 pr-2">
                           <div className="flex items-center gap-2">
@@ -480,7 +506,7 @@ export function Explorer() {
                         <td className="whitespace-nowrap px-2 text-gray-600">{x.kind === "folder" ? "File folder" : `Excel Worksheet · v${x.f.current_version}`}</td>
                         <td className="px-2">{x.kind === "file" ? <StatusBadge status={x.f.status} /> : x.f.locked ? <span className="text-[11px] text-gray-500">No access</span> : null}</td>
                         <td className="truncate px-2 text-gray-600">{x.f.owner}</td>
-                        <td className="whitespace-nowrap px-2 pr-4 text-right text-gray-600">{x.kind === "file" ? fmtBytes(x.f.size_bytes) : `${x.f.items} items`}</td>
+                        <td className="whitespace-nowrap px-2 pr-4 text-right text-gray-600">{x.kind === "file" ? fmtBytes(x.f.size_bytes) : `${x.f.items} ${x.f.items === 1 ? "item" : "items"}`}</td>
                       </tr>
                     );
                   })}
@@ -493,10 +519,9 @@ export function Explorer() {
                   return (
                     <div
                       key={x.kind + x.f.id}
-                      className={cx("win-row flex cursor-default flex-col items-center gap-1 rounded p-2 text-center text-[12px]", selected && "selected")}
-                      onClick={(e) => (e.stopPropagation(), setSel({ type: x.kind, id: x.f.id }))}
-                      onDoubleClick={() => open({ type: x.kind, id: x.f.id })}
-                      onContextMenu={(e) => ctx(e, { type: x.kind, id: x.f.id })}
+                      className={cx("win-row flex cursor-pointer flex-col items-center gap-1 rounded p-2 text-center text-[12px]", selected && "selected")}
+                      title={x.f.name}
+                      {...itemHandlers({ type: x.kind, id: x.f.id })}
                     >
                       {x.kind === "folder" ? <FolderIcon size={56} locked={x.f.locked} /> : <ExcelIcon size={52} locked={x.f.locked} />}
                       <span className="line-clamp-2 break-all">{x.f.name}</span>
@@ -529,8 +554,9 @@ export function Explorer() {
 
         {/* Status bar */}
         <div className="flex h-7 items-center gap-4 border-t border-[#e5e5e5] bg-[#f3f3f3] px-3 text-[12px] text-gray-600">
-          <span>{items.length} items</span>
+          <span>{items.length} {items.length === 1 ? "item" : "items"}</span>
           {sel && <span>1 item selected{selFile ? `  ${fmtBytes(selFile.size_bytes)}` : ""}</span>}
+          <span className="text-gray-400 max-sm:hidden">Click to open · Right-click or Ctrl+click to select</span>
           {uploading && <span className="text-brand-700">Uploading {uploading}…</span>}
           <span className="ml-auto flex items-center gap-1">
             <Info size={12} />
@@ -546,7 +572,7 @@ export function Explorer() {
         <div className="win-menu fixed z-50" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
           {menu.target ? (
             <>
-              <MenuItem icon={menu.target.type === "folder" ? FolderPlus : FilePlus2} label="Open" hint="Enter" onClick={() => open(menu.target)} />
+              <MenuItem icon={ExternalLink} label="Open" hint="Enter" onClick={() => open(menu.target)} />
               {selFile && <MenuItem icon={Download} label="Download" disabled={selFile.locked} onClick={() => download(selFile.id)} />}
               {selFolder?.locked && <MenuItem icon={Lock} label="Request access…" onClick={() => setShowDenied({ id: selFolder.id, name: selFolder.name })} />}
               <div className="my-1 h-px bg-gray-200" />

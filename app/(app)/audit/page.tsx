@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight, Download, ShieldCheck, ShieldX } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { CellChangesButton, LongValue, type CellChangeEntry } from "@/components/CellChanges";
 import { Button, Card, Empty, inputCls, useToast } from "@/components/ui";
 import { api, fmtDate } from "@/lib/client";
 
@@ -20,28 +21,31 @@ interface Row {
   hash: string;
 }
 
-function Details({ d }: { d: unknown }) {
+function Details({ r }: { r: Row }) {
+  const d = r.details;
   if (!d || typeof d !== "object") return null;
   const o = d as Record<string, unknown>;
   return (
     <div className="space-y-0.5">
       {Object.entries(o).map(([k, v]) => {
+        // Cell-level changes: one line per record, every cell's old → new value in a modal.
         if (k === "changes" && Array.isArray(v))
           return (
-            <div key={k}>
-              <span className="text-gray-500">changes:</span>
-              <ul className="ml-3 font-mono text-[10px]">
-                {(v as { cell: string; old: unknown; new: unknown }[]).map((c, i) => (
-                  <li key={i}>
-                    {c.cell}: <span className="text-red-600">{String(c.old ?? "∅")}</span> → <span className="text-green-700">{String(c.new ?? "∅")}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <CellChangesButton
+              key={k}
+              changes={v as CellChangeEntry[]}
+              context={{
+                file: r.entity_name,
+                who: r.user_name ? `${r.user_name}${r.employee_id ? ` (${r.employee_id})` : ""}` : null,
+                when: fmtDate(r.ts),
+                reason: r.reason,
+                version: o.fromVersion !== undefined ? `v${o.fromVersion} → v${o.toVersion}` : null,
+              }}
+            />
           );
         return (
           <div key={k} className="break-words">
-            <span className="text-gray-500">{k}:</span> {typeof v === "object" ? JSON.stringify(v) : String(v)}
+            <span className="text-gray-500">{k}:</span> <LongValue label={`${r.action} · ${k}`} value={v} />
           </div>
         );
       })}
@@ -171,7 +175,7 @@ export default function AuditPage() {
                       <div className="max-w-[220px] break-words">{r.entity_name}</div>
                     </td>
                     <td className="max-w-[360px] px-3 py-2">
-                      <Details d={r.details} />
+                      <Details r={r} />
                     </td>
                     <td className="max-w-[200px] px-3 py-2">{r.reason}</td>
                     <td className="px-3 py-2 text-gray-500">{r.ip}</td>

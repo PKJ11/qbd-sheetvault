@@ -26,9 +26,12 @@ export function AnnotationsPanel({
   onChanged,
   currentUserId,
   sheetNames,
+  activeStage,
 }: {
   /** When set (Excel editor view), the reviewer types the cell reference instead of clicking it. */
   sheetNames?: string[];
+  /** Stage of the active review: the department manager can't close or re-open annotations raised by QA. */
+  activeStage: "MANAGER" | "QA" | null;
   fileId: number;
   annotations: Annotation[];
   messages: AnnotationMessage[];
@@ -137,6 +140,7 @@ export function AnnotationsPanel({
           const S = STATUS[a.status];
           const thread = messages.filter((m) => m.annotation_id === a.id);
           const canDelete = canAnnotate && a.status === "OPEN" && a.review_id === activeReviewId && a.created_by === currentUserId;
+          const canVerify = canAnnotate && !(activeStage === "MANAGER" && a.review_stage === "QA");
           return (
             <div key={a.id} className={cx("rounded-lg border bg-white p-2.5 text-xs shadow-sm", selectedCell && a.cell === selectedCell.cell && a.sheet === selectedCell.sheet ? "border-brand-500 ring-1 ring-brand-300" : "border-gray-200")}>
               <div className="mb-1.5 flex items-center gap-2">
@@ -150,6 +154,7 @@ export function AnnotationsPanel({
                 ) : (
                   <span className="text-[11px] text-gray-500">General</span>
                 )}
+                {a.review_stage === "QA" && <span className="rounded bg-violet-50 px-1 text-[10px] font-semibold text-violet-700">QA</span>}
                 <span className="ml-auto text-[10px] text-gray-400">#{a.id} · v{a.version_no}</span>
               </div>
               <div className="space-y-1.5">
@@ -168,12 +173,12 @@ export function AnnotationsPanel({
                     {a.status === "ADDRESSED" ? "Edit response" : "Respond"}
                   </Button>
                 )}
-                {canAnnotate && a.status !== "CLOSED" && (
+                {canVerify && a.status !== "CLOSED" && (
                   <Button size="sm" disabled={busy} onClick={() => act(a.id, "close")}>
                     <CheckCircle2 size={13} /> Close
                   </Button>
                 )}
-                {canAnnotate && a.status !== "OPEN" && replyFor !== a.id && (
+                {canVerify && a.status !== "OPEN" && replyFor !== a.id && (
                   <Button size="sm" onClick={() => (setReplyFor(a.id), setReply(""))}>
                     <RotateCcw size={13} /> Re-open
                   </Button>

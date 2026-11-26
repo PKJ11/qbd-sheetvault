@@ -7,6 +7,7 @@ import { body, HttpError, intParam, json, route } from "@/lib/http";
 import { permList } from "@/lib/permissions";
 import { onlyofficeSettings } from "@/lib/onlyoffice";
 import { activeSession } from "@/lib/sessions";
+import { isUnderReview, reviewBlocker, type ActiveReview } from "@/lib/workflow";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -23,16 +24,22 @@ export const GET = route<Ctx>(async (req, { params }) => {
     versions: unknown[] | null;
     annotations: unknown[] | null;
     messages: unknown[] | null;
-    reviews: { decision: string | null; reviewer_id: number; version_no: number }[] | null;
+    reviews: (ActiveReview & { decision: string | null })[] | null;
     owner: { full_name: string; employee_id: string } | null;
     last_reviewed: number | null;
     checkout: { id: number; user_id: number; user_name: string; employee_id: string; started_at: string; working_saved_at: string | null; base_version: number } | null;
     changed: unknown[] | null;
+    qa_copy: { id: number; name: string } | null;
+    source: { id: number; name: string } | null;
   };
   const [[meta], model] = await Promise.all([
+    // "Changed" cells are relative to the last completed review at the stage now reviewing (QA compares with its own last look).
     q<Meta>(
-      `WITH lr AS (
-         SELECT max(version_no) AS v FROM reviews WHERE file_id = $1 AND decision IN ('APPROVED','CHANGES_REQUESTED')
+      `WITH st AS (
+         SELECT stage FROM reviews WHERE file_id = $1 AND decision IS NULL ORDER BY id DESC LIMIT 1
+       ), lr AS (
+         SELECT max(version_no) AS v FROM reviews
+         WHERE file_id = $1 AND decision IN ('APPROVED','CHANGES_REQUESTED') AND (NOT EXISTS (SELECT 1 FROM st) OR stage = (SELECT stage FROM st))
        )
        SELECT
          (SELECT json_build_object('created_at', v.created_at, 'reason', v.reason, 'sha256', v.sha256, 'by', u.full_name)
@@ -41,9 +48,11 @@ export const GET = route<Ctx>(async (req, { params }) => {
             SELECT v.version_no, v.created_at, v.reason, v.size_bytes, v.sha256, u.full_name AS by, u.employee_id
             FROM file_versions v JOIN users u ON u.id = v.created_by WHERE v.file_id = $1) x) AS versions,
          (SELECT json_agg(x ORDER BY x.id) FROM (
-            SELECT a.*, cu.full_name AS created_by_name, ru.full_name AS responded_by_name, xu.full_name AS closed_by_name
+            SELECT a.*, cu.full_name AS created_by_name, ru.full_name AS responded_by_name, xu.full_name AS closed_by_name,
+                   rv.stage AS review_stage
             FROM annotations a JOIN users cu ON cu.id = a.created_by
             LEFT JOIN users ru ON ru.id = a.responded_by LEFT JOIN users xu ON xu.id = a.closed_by
+            LEFT JOIN reviews rv ON rv.id = a.review_id
             WHERE a.file_id = $1) x) AS annotations,
          (SELECT json_agg(x ORDER BY x.id) FROM (
             SELECT m.*, u.full_name AS by_name, u.employee_id AS by_employee_id
@@ -51,8 +60,12 @@ export const GET = route<Ctx>(async (req, { params }) => {
             WHERE a.file_id = $1) x) AS messages,
          (SELECT json_agg(x ORDER BY x.id DESC) FROM (
             SELECT r.*, su.full_name AS submitted_by_name, ru.full_name AS reviewer_name, ru.employee_id AS reviewer_employee_id
-            FROM reviews r JOIN users su ON su.id = r.submitted_by JOIN users ru ON ru.id = r.reviewer_id
+            FROM reviews r JOIN users su ON su.id = r.submitted_by LEFT JOIN users ru ON ru.id = r.reviewer_id
             WHERE r.file_id = $1) x) AS reviews,
+         (SELECT json_build_object('id', c.id, 'name', c.name) FROM files c
+            WHERE c.source_file_id = $1 AND c.deleted_at IS NULL ORDER BY c.id DESC LIMIT 1) AS qa_copy,
+         (SELECT json_build_object('id', s.id, 'name', s.name) FROM files s
+            WHERE s.id = $4 AND s.deleted_at IS NULL) AS source,
          (SELECT json_build_object('full_name', full_name, 'employee_id', employee_id) FROM users WHERE id = $3) AS owner,
          (SELECT v FROM lr) AS last_reviewed,
          (SELECT json_build_object('id', s.id, 'user_id', s.user_id, 'user_name', u.full_name, 'employee_id', u.employee_id,
@@ -63,7 +76,7 @@ export const GET = route<Ctx>(async (req, { params }) => {
             SELECT DISTINCT ON (sheet, cell) sheet, cell, old_value, new_value, version_no
             FROM cell_changes WHERE file_id = $1 AND version_no > (SELECT v FROM lr) AND version_no <= $2
             ORDER BY sheet, cell, version_no DESC) x) AS changed`,
-      [id, versionNo, file.owner_id],
+      [id, versionNo, file.owner_id, file.source_file_id],
     ),
     versionModel(id, versionNo),
   ]);
@@ -78,7 +91,9 @@ export const GET = route<Ctx>(async (req, { params }) => {
     path: acl.path(file.folder_id).map((f) => ({ id: f.id, name: f.name })),
     perms: permList(perms),
     isOwner: file.owner_id === u.id,
-    isReviewer: !!activeReview && activeReview.reviewer_id === u.id,
+    isReviewer: isUnderReview(file.status) && reviewBlocker(u, file, activeReview, perms) === null,
+    qaCopy: meta.qa_copy,
+    source: meta.source,
     versionNo,
     version: { created_at: version.created_at, reason: version.reason, by: version.by, sha256: version.sha256 },
     model,
@@ -101,6 +116,8 @@ export const PATCH = route<Ctx>(async (req, { params }) => {
   const id = intParam((await params).id);
   const input = Patch.parse(await body(req));
   const { file } = await fileAccess(u, id, "edit");
+  if (file.status === "APPROVED") throw new HttpError(409, "QA-approved files are locked permanently and can't be renamed.");
+  if (isUnderReview(file.status)) throw new HttpError(409, "This file is locked while it is under review.");
   let name = cleanName(input.name, "File name");
   if (!/\.xlsx$/i.test(name)) name += ".xlsx";
   if (name === file.name) return json({ ok: true });
@@ -118,7 +135,7 @@ export const DELETE = route<Ctx>(async (req, { params }) => {
   const { reason: raw } = (await body<{ reason?: string }>(req)) ?? {};
   const reason = requireReason(raw, "A reason for deletion");
   const { file, acl } = await fileAccess(u, id, "delete");
-  if (file.status === "IN_REVIEW") throw new HttpError(409, "This file is under review. Withdraw or complete the review before deleting it.");
+  if (isUnderReview(file.status)) throw new HttpError(409, "This file is under review. Withdraw or complete the review before deleting it.");
   const checkout = await activeSession(id);
   if (checkout) throw new HttpError(409, `This file is checked out in the Excel editor by ${checkout.user_name}.`);
   const actor = await actorOf(u);

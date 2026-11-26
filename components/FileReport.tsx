@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { BrandMark } from "./icons";
 import { Button, StatusBadge } from "./ui";
 import { api, fmtBytes, fmtDate } from "@/lib/client";
-import { APP_FULL_NAME, ORG_NAME } from "@/lib/constants";
+import { APP_FULL_NAME, ORG_NAME, REVIEW_STAGE } from "@/lib/constants";
 
 interface History {
   file: { id: number; name: string; status: string; current_version: number; review_cycle: number; owner_name: string; owner_employee_id: string; created_at: string; updated_at: string };
@@ -20,8 +20,9 @@ interface History {
     submitted_by_employee_id: string;
     submitted_at: string;
     submit_comment: string | null;
-    reviewer_name: string;
-    reviewer_employee_id: string;
+    stage: "MANAGER" | "QA";
+    reviewer_name: string | null;
+    reviewer_employee_id: string | null;
     decision: string | null;
     decided_at: string | null;
     decision_comment: string | null;
@@ -130,7 +131,7 @@ export function FileReport({ id }: { id: number }) {
             <table className="w-full border-collapse">
               <thead>
                 <tr>
-                  {["Cycle", "Version", "Submitted by / on", "Reviewer", "Decision / on", "Comments", "Notes"].map((x) => (
+                  {["Cycle", "Stage", "Version", "Submitted by / on", "Reviewer", "Decision / on", "Comments", "Annotations"].map((x) => (
                     <th key={x} className={th}>
                       {x}
                     </th>
@@ -141,15 +142,14 @@ export function FileReport({ id }: { id: number }) {
                 {h.reviews.map((r) => (
                   <tr key={r.id}>
                     <td className={td}>{r.cycle_no}</td>
+                    <td className={td}>{REVIEW_STAGE[r.stage]}</td>
                     <td className={td}>v{r.version_no}</td>
                     <td className={td}>
                       {r.submitted_by_name} ({r.submitted_by_employee_id})<br />
                       <span className="text-gray-500">{fmtDate(r.submitted_at)}</span>
                       {r.submit_comment && <div className="mt-1 italic">“{r.submit_comment}”</div>}
                     </td>
-                    <td className={td}>
-                      {r.reviewer_name} ({r.reviewer_employee_id})
-                    </td>
+                    <td className={td}>{r.reviewer_name ? `${r.reviewer_name} (${r.reviewer_employee_id})` : "QA department (any member)"}</td>
                     <td className={td}>
                       <b>{decisionLabel(r.decision)}</b>
                       <br />

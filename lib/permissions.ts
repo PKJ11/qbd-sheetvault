@@ -4,11 +4,14 @@ import { q, type Db } from "./db";
 import { HttpError } from "./http";
 import type { User } from "./auth";
 
+export type SystemFolderKey = "QC" | "TEMPLATES" | "QA";
+
 export interface FolderRow {
   id: number;
   parent_id: number | null;
   name: string;
   inherit_permissions: boolean;
+  system_key: SystemFolderKey | null;
 }
 
 export interface Ace {
@@ -65,7 +68,7 @@ export class Acl {
     const acl = new Acl();
     const [row] = await q<{ folders: FolderRow[] | null; aces: Ace[] | null; file_aces: Ace[] | null }>(
       `SELECT
-         (SELECT json_agg(json_build_object('id', id, 'parent_id', parent_id, 'name', name, 'inherit_permissions', inherit_permissions))
+         (SELECT json_agg(json_build_object('id', id, 'parent_id', parent_id, 'name', name, 'inherit_permissions', inherit_permissions, 'system_key', system_key))
             FROM folders WHERE deleted_at IS NULL) AS folders,
          (SELECT json_agg(p) FROM permissions p WHERE resource_type = 'folder') AS aces,
          (SELECT json_agg(p) FROM permissions p WHERE resource_type = 'file' AND resource_id = ANY($1::int[])) AS file_aces`,
@@ -107,6 +110,22 @@ export class Acl {
 
   exists(folderId: number) {
     return this.path(folderId).length > 0;
+  }
+
+  /** A live folder the workflow relies on (Quality Control, Validated Templates, Quality Assurance). */
+  systemFolder(key: SystemFolderKey): FolderRow | undefined {
+    for (const f of this.folders.values()) if (f.system_key === key && this.exists(f.id)) return f;
+    return undefined;
+  }
+
+  /** True when the folder is the system folder `key` or lies inside it. */
+  isWithin(folderId: number, key: SystemFolderKey): boolean {
+    const root = this.systemFolder(key);
+    return !!root && this.path(folderId).some((f) => f.id === root.id);
+  }
+
+  pathText(folderId: number) {
+    return this.path(folderId).map((f) => f.name).join(" \\ ");
   }
 
   folderPerms(u: User, folderId: number): Set<Perm> {

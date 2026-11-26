@@ -3,7 +3,7 @@ import { writeAudit } from "@/lib/audit";
 import { actorOf, requireUser } from "@/lib/auth";
 import { one, tx } from "@/lib/db";
 import { cleanName, fileAccess, storeVersion, uniqueFileName, versionContent } from "@/lib/files";
-import { body, intParam, json, route } from "@/lib/http";
+import { body, HttpError, intParam, json, route } from "@/lib/http";
 import { assertPerm } from "@/lib/permissions";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -15,7 +15,12 @@ export const POST = route<Ctx>(async (req, { params }) => {
   const id = intParam((await params).id);
   const input = Input.parse(await body(req));
   const { file: src, acl } = await fileAccess(u, id, "read");
+  // New workbooks may only start from a validated template (an approved file in Quality Control \ Validated Templates).
+  if (!acl.isWithin(src.folder_id, "TEMPLATES") || src.status !== "APPROVED")
+    throw new HttpError(400, "New workbooks can only be created from an approved template in the Validated Templates folder.");
   assertPerm(acl.folderPerms(u, input.folderId), "create", "create files in this folder");
+  if (acl.isWithin(input.folderId, "TEMPLATES"))
+    throw new HttpError(400, "Working copies can't be created inside the Validated Templates folder. Pick a working folder.");
   let name = cleanName(input.name || src.name, "File name");
   if (!/\.xlsx$/i.test(name)) name += ".xlsx";
   const buf = await versionContent(src.id, src.current_version);

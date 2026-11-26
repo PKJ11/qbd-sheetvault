@@ -15,6 +15,7 @@ interface Reviewer {
 
 export function SubmitDialog({ fileId, resubmit, onClose, onDone }: { fileId: number; resubmit: boolean; onClose: () => void; onDone: () => void }) {
   const [reviewers, setReviewers] = useState<Reviewer[] | null>(null);
+  const [department, setDepartment] = useState<string | null>(null);
   const [reviewerId, setReviewerId] = useState<number | "">("");
   const [comment, setComment] = useState("");
   const [password, setPassword] = useState("");
@@ -22,9 +23,10 @@ export function SubmitDialog({ fileId, resubmit, onClose, onDone }: { fileId: nu
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api<{ reviewers: Reviewer[] }>(`/api/files/${fileId}/reviewers`)
+    api<{ reviewers: Reviewer[]; department: string | null }>(`/api/files/${fileId}/reviewers`)
       .then((r) => {
         setReviewers(r.reviewers);
+        setDepartment(r.department);
         const rm = r.reviewers.find((x) => x.isReportingManager);
         if (rm) setReviewerId(rm.id);
       })
@@ -57,11 +59,22 @@ export function SubmitDialog({ fileId, resubmit, onClose, onDone }: { fileId: nu
         </>
       }
     >
-      <p className="mb-4 text-gray-600">The file is locked for editing while it is under review. The reviewer can annotate cells, request changes or approve.</p>
+      <ol className="mb-4 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-600">
+        <li className="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-800">1. Department manager approves</li>
+        <li aria-hidden>→</li>
+        <li className="rounded-full bg-violet-50 px-2 py-0.5 font-semibold text-violet-800">2. QA department gives final approval</li>
+        <li aria-hidden>→</li>
+        <li className="rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-800">Locked + copy filed in QA</li>
+      </ol>
+      <p className="mb-4 text-gray-600">The file is locked for editing while it is under review. Either reviewer can annotate cells and send it back to you for changes.</p>
       <div className="space-y-4">
-        <Field label="Reviewer" required hint="Only users with Review permission on this file are listed. You can't review your own work.">
+        <Field
+          label={department ? `Manager of ${department}` : "Department manager"}
+          required
+          hint="Only managers of the author's department with Review permission on this file are listed. You can't review your own work."
+        >
           <select className={inputCls} value={reviewerId} onChange={(e) => setReviewerId(e.target.value ? Number(e.target.value) : "")}>
-            <option value="">{reviewers ? (reviewers.length ? "Select reviewer…" : "No eligible reviewers") : "Loading…"}</option>
+            <option value="">{reviewers ? (reviewers.length ? "Select manager…" : department ? `No eligible manager in ${department}` : "The author has no department") : "Loading…"}</option>
             {reviewers?.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.full_name} ({r.employee_id}){r.designation ? ` · ${r.designation}` : ""}

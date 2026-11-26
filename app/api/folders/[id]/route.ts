@@ -38,6 +38,7 @@ export const PATCH = route<Ctx>(async (req, { params }) => {
   const name = cleanName(raw, "Folder name");
   const acl = await Acl.load();
   assertPerm(acl.folderPerms(u, id), "edit", "rename this folder");
+  if (acl.folders.get(id)!.system_key) throw new HttpError(409, `"${acl.folders.get(id)!.name}" is a system folder used by the approval workflow and can't be renamed.`);
   const old = acl.folders.get(id)!.name;
   const actor = await actorOf(u);
   await tx(async (db) => {
@@ -57,6 +58,8 @@ export const DELETE = route<Ctx>(async (req, { params }) => {
   // Every sub-folder must be deletable by this user too.
   const descendants = [...acl.folders.values()].filter((f) => acl.path(f.id).some((p) => p.id === id));
   for (const d of descendants) assertPerm(acl.folderPerms(u, d.id), "delete", `delete "${d.name}"`);
+  const sys = descendants.find((d) => d.system_key);
+  if (sys) throw new HttpError(409, `"${sys.name}" is a system folder used by the approval workflow and can't be deleted.`);
   const ids = descendants.map((d) => d.id);
   const actor = await actorOf(u);
   const counts = await tx(async (db) => {

@@ -17,6 +17,8 @@ export interface Annotation {
   responded_at: string | null;
   closed_by_name: string | null;
   closed_at: string | null;
+  /** Stage of the review the annotation was raised (or re-opened) in. */
+  review_stage: "MANAGER" | "QA" | null;
 }
 
 export interface AnnotationMessage {
@@ -37,8 +39,10 @@ export interface Review {
   submitted_by_name: string;
   submitted_at: string;
   submit_comment: string | null;
-  reviewer_id: number;
-  reviewer_name: string;
+  stage: "MANAGER" | "QA";
+  /** NULL while a QA review waits in the shared QA queue. */
+  reviewer_id: number | null;
+  reviewer_name: string | null;
   decision: "APPROVED" | "CHANGES_REQUESTED" | "WITHDRAWN" | null;
   decided_at: string | null;
   decision_comment: string | null;
@@ -59,7 +63,8 @@ export interface FileData {
     id: number;
     name: string;
     folder_id: number;
-    status: "DRAFT" | "IN_REVIEW" | "CHANGES_REQUESTED" | "APPROVED";
+    status: "DRAFT" | "IN_REVIEW" | "QA_REVIEW" | "CHANGES_REQUESTED" | "APPROVED";
+    source_file_id: number | null;
     current_version: number;
     review_cycle: number;
     owner_id: number;
@@ -71,6 +76,10 @@ export interface FileData {
   perms: Perm[];
   isOwner: boolean;
   isReviewer: boolean;
+  /** QA-approved copy filed under Quality Assurance (on the original). */
+  qaCopy: { id: number; name: string } | null;
+  /** The original workbook (on a QA copy). */
+  source: { id: number; name: string } | null;
   versionNo: number;
   version: { created_at: string; reason: string | null; by: string; sha256: string };
   model: WorkbookModel;

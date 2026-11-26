@@ -15,6 +15,7 @@ export const POST = route<Ctx>(async (req, { params }) => {
   const actor = await actorOf(u);
   await tx(async (db) => {
     const { file } = await fileAccess(u, id, "edit", db, true);
+    if (file.status === "QA_REVIEW") throw new HttpError(409, "The manager has already approved this file and sent it to QA. It can't be withdrawn now.");
     if (file.status !== "IN_REVIEW") throw new HttpError(409, "This file is not under review.");
     const review = await one<{ id: number; submitted_by: number; cycle_no: number }>(
       "SELECT id, submitted_by, cycle_no FROM reviews WHERE file_id = $1 AND decision IS NULL ORDER BY id DESC LIMIT 1",

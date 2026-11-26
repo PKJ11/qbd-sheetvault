@@ -4,6 +4,7 @@ import { actorOf, requireUser } from "@/lib/auth";
 import { one, tx } from "@/lib/db";
 import { fileAccess } from "@/lib/files";
 import { body, HttpError, intParam, json, route } from "@/lib/http";
+import { activeReview, assertCanReview, isUnderReview } from "@/lib/workflow";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -23,14 +24,6 @@ const Input = z.object({
   text: z.string().trim().max(4000).optional(),
 });
 
-async function activeReview(fileId: number, db: Parameters<typeof one>[2]) {
-  return one<{ id: number; reviewer_id: number }>(
-    "SELECT id, reviewer_id FROM reviews WHERE file_id = $1 AND decision IS NULL ORDER BY id DESC LIMIT 1",
-    [fileId],
-    db,
-  );
-}
-
 export const PATCH = route<Ctx>(async (req, { params }) => {
   const u = await requireUser();
   const annId = intParam((await params).id);
@@ -42,7 +35,7 @@ export const PATCH = route<Ctx>(async (req, { params }) => {
     if (!a) throw new HttpError(404, "Annotation not found.");
     let next: AnnotationRow["status"];
     let kind: "RESPONSE" | "CLOSE" | "REOPEN";
-    const { file } = await fileAccess(u, a.file_id, input.action === "respond" ? "edit" : "review", db);
+    const { file, perms } = await fileAccess(u, a.file_id, input.action === "respond" ? "edit" : "read", db);
 
     if (input.action === "respond") {
       if (file.status !== "CHANGES_REQUESTED" && file.status !== "DRAFT")
@@ -56,9 +49,12 @@ export const PATCH = route<Ctx>(async (req, { params }) => {
         [annId, input.text, u.id],
       );
     } else {
-      if (file.status !== "IN_REVIEW") throw new HttpError(409, "Annotations can be closed or re-opened only during a review.");
-      const review = await activeReview(a.file_id, db);
-      if (!review || review.reviewer_id !== u.id) throw new HttpError(403, "Only the assigned reviewer can do this.");
+      if (!isUnderReview(file.status)) throw new HttpError(409, "Annotations can be closed or re-opened only during a review.");
+      const review = assertCanReview(u, file, await activeReview(a.file_id, db), perms);
+      // QA verifies the annotations QA raised; the department manager can't close or re-open them.
+      const raisedIn = a.review_id ? await one<{ stage: string }>("SELECT stage FROM reviews WHERE id = $1", [a.review_id], db) : null;
+      if (review.stage === "MANAGER" && raisedIn?.stage === "QA")
+        throw new HttpError(403, "This annotation was raised by QA. Only QA can close or re-open it.");
       if (input.action === "close") {
         if (a.status === "CLOSED") throw new HttpError(409, "Already closed.");
         next = "CLOSED";
@@ -102,9 +98,10 @@ export const DELETE = route<Ctx>(async (_req, { params }) => {
   await tx(async (db) => {
     const a = await one<AnnotationRow>("SELECT * FROM annotations WHERE id = $1 FOR UPDATE", [annId], db);
     if (!a) throw new HttpError(404, "Annotation not found.");
-    const { file } = await fileAccess(u, a.file_id, "review", db);
-    const review = await activeReview(a.file_id, db);
-    if (file.status !== "IN_REVIEW" || !review || review.reviewer_id !== u.id || a.review_id !== review.id || a.created_by !== u.id || a.status !== "OPEN")
+    const { file, perms } = await fileAccess(u, a.file_id, "read", db);
+    if (!isUnderReview(file.status)) throw new HttpError(409, "Annotations can only be deleted during a review.");
+    const review = assertCanReview(u, file, await activeReview(a.file_id, db), perms);
+    if (a.review_id !== review.id || a.created_by !== u.id || a.status !== "OPEN")
       throw new HttpError(409, "Only open annotations you added in the current review can be deleted.");
     await db.query("DELETE FROM annotations WHERE id = $1", [annId]);
     await writeAudit(db, actor, {

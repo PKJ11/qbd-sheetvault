@@ -24,6 +24,7 @@ interface TaskFile {
   reviewer_name?: string;
   decision_comment?: string | null;
   decided_at?: string;
+  stage?: "MANAGER" | "QA" | null;
 }
 interface Tasks {
   toReview: TaskFile[];
@@ -90,13 +91,23 @@ export default function TasksPage() {
       )}
       <div className="grid gap-5 lg:grid-cols-2">
         <Card title="Waiting for my review">
-          {t.toReview.length ? t.toReview.map((f) => <Row key={f.id} f={f} extra={`Cycle ${f.review_cycle} · from ${f.submitted_by_name} · ${fmtDate(f.submitted_at)}${f.submit_comment ? ` — “${f.submit_comment}”` : ""}`} />) : <Empty>Nothing to review.</Empty>}
+          {t.toReview.length ? (
+            t.toReview.map((f) => (
+              <Row
+                key={f.id}
+                f={f}
+                extra={`${f.stage === "QA" ? `QA approval · approved by manager ${f.submitted_by_name}` : `Manager approval · from ${f.submitted_by_name}`} · cycle ${f.review_cycle} · ${fmtDate(f.submitted_at)}${f.submit_comment ? ` — “${f.submit_comment}”` : ""}`}
+              />
+            ))
+          ) : (
+            <Empty>Nothing to review.</Empty>
+          )}
         </Card>
         <Card title="Sent back to me — changes requested">
-          {t.changesRequested.length ? t.changesRequested.map((f) => <Row key={f.id} f={f} extra={`${f.reviewer_name ?? "Reviewer"} · ${fmtDate(f.decided_at)}${f.decision_comment ? ` — “${f.decision_comment}”` : ""}`} />) : <Empty>No workbooks need changes.</Empty>}
+          {t.changesRequested.length ? t.changesRequested.map((f) => <Row key={f.id} f={f} extra={`${f.stage === "QA" ? "QA" : "Manager"}: ${f.reviewer_name ?? "Reviewer"} · ${fmtDate(f.decided_at)}${f.decision_comment ? ` — “${f.decision_comment}”` : ""}`} />) : <Empty>No workbooks need changes.</Empty>}
         </Card>
         <Card title="My submissions in review">
-          {t.inReview.length ? t.inReview.map((f) => <Row key={f.id} f={f} extra={`With ${f.reviewer_name} since ${fmtDate(f.submitted_at)}`} />) : <Empty>No submissions awaiting review.</Empty>}
+          {t.inReview.length ? t.inReview.map((f) => <Row key={f.id} f={f} extra={`${f.stage === "QA" ? "Waiting for QA approval" : `With manager ${f.reviewer_name}`} since ${fmtDate(f.submitted_at)}`} />) : <Empty>No submissions awaiting review.</Empty>}
         </Card>
         <Card title="My drafts">
           {t.drafts.length ? t.drafts.map((f) => <Row key={f.id} f={f} extra={`Last saved ${fmtDate(f.updated_at)}`} />) : <Empty>No drafts.</Empty>}

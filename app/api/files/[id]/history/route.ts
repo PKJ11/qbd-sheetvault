@@ -21,7 +21,7 @@ export const GET = route<Ctx>(async (_req, { params }) => {
       `SELECT r.*, su.full_name AS submitted_by_name, su.employee_id AS submitted_by_employee_id,
               ru.full_name AS reviewer_name, ru.employee_id AS reviewer_employee_id,
               (SELECT count(*)::int FROM annotations a WHERE a.review_id = r.id) AS annotations
-       FROM reviews r JOIN users su ON su.id = r.submitted_by JOIN users ru ON ru.id = r.reviewer_id
+       FROM reviews r JOIN users su ON su.id = r.submitted_by LEFT JOIN users ru ON ru.id = r.reviewer_id
        WHERE r.file_id = $1 ORDER BY r.id`,
       [id],
     ),

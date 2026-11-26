@@ -14,7 +14,7 @@ export interface FileRow {
   folder_id: number;
   name: string;
   owner_id: number;
-  status: "DRAFT" | "IN_REVIEW" | "CHANGES_REQUESTED" | "APPROVED";
+  status: "DRAFT" | "IN_REVIEW" | "QA_REVIEW" | "CHANGES_REQUESTED" | "APPROVED";
   current_version: number;
   review_cycle: number;
   inherit_permissions: boolean;
@@ -23,6 +23,7 @@ export interface FileRow {
   updated_at: Date;
   updated_by: number | null;
   deleted_at: Date | null;
+  source_file_id: number | null;
 }
 
 export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;

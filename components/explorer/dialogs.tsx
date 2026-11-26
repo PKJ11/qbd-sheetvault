@@ -82,13 +82,16 @@ interface Template {
 
 export function TemplatePicker({ folderId, onCreated, onClose }: { folderId: number; onCreated: (id: number) => void; onClose: () => void }) {
   const [list, setList] = useState<Template[] | null>(null);
+  const [library, setLibrary] = useState<string | null>(null);
   const [sel, setSel] = useState<Template | null>(null);
   const [name, setName] = useState("");
   const [filter, setFilter] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api<{ templates: Template[] }>("/api/templates").then((r) => setList(r.templates)).catch((e) => setErr(e.message));
+    api<{ templates: Template[]; library: string | null }>("/api/templates")
+      .then((r) => (setList(r.templates), setLibrary(r.library)))
+      .catch((e) => setErr(e.message));
   }, []);
   const create = async () => {
     if (!sel) return;
@@ -118,11 +121,13 @@ export function TemplatePicker({ folderId, onCreated, onClose }: { folderId: num
         </>
       }
     >
-      <p className="mb-3 text-gray-600">Choose an approved workbook. A new draft copy is created in this folder and you become its author.</p>
+      <p className="mb-3 text-gray-600">
+        Choose a validated template{library ? <> from <b>{library}</b></> : ""}. A new draft copy is created in this folder and you become its author.
+      </p>
       <input className={inputCls} placeholder="Search templates" value={filter} onChange={(e) => setFilter(e.target.value)} />
       <div className="mt-2 h-56 overflow-auto rounded border border-gray-300 bg-white">
         {!list && <div className="p-4 text-gray-400">Loading…</div>}
-        {list && !shown.length && <div className="p-4 text-gray-400">No approved templates you can access.</div>}
+        {list && !shown.length && <div className="p-4 text-gray-400">No validated templates you can access.</div>}
         {shown.map((t) => (
           <button
             key={t.id}

@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { writeAudit } from "@/lib/audit";
 import { actorOf, requireUser } from "@/lib/auth";
-import { one, q, tx } from "@/lib/db";
+import { q, tx } from "@/lib/db";
 import { fileAccess } from "@/lib/files";
 import { body, HttpError, intParam, json, route } from "@/lib/http";
+import { activeReview, assertCanReview, isUnderReview } from "@/lib/workflow";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -33,14 +34,9 @@ export const POST = route<Ctx>(async (req, { params }) => {
   const input = Input.parse(await body(req));
   const actor = await actorOf(u);
   const created = await tx(async (db) => {
-    const { file } = await fileAccess(u, id, "review", db, true);
-    if (file.status !== "IN_REVIEW") throw new HttpError(409, "Annotations can only be added while the file is under review.");
-    const review = await one<{ id: number; reviewer_id: number }>(
-      "SELECT id, reviewer_id FROM reviews WHERE file_id = $1 AND decision IS NULL ORDER BY id DESC LIMIT 1",
-      [id],
-      db,
-    );
-    if (!review || review.reviewer_id !== u.id) throw new HttpError(403, "Only the assigned reviewer can annotate this file.");
+    const { file, perms } = await fileAccess(u, id, "read", db, true);
+    if (!isUnderReview(file.status)) throw new HttpError(409, "Annotations can only be added while the file is under review.");
+    const review = assertCanReview(u, file, await activeReview(id, db), perms);
     const r = await db.query<{ id: number }>(
       `INSERT INTO annotations (file_id, review_id, version_no, sheet, cell, comment, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
@@ -55,7 +51,7 @@ export const POST = route<Ctx>(async (req, { params }) => {
       entityType: "file",
       entityId: id,
       entityName: file.name,
-      details: { annotationId: r.rows[0].id, cell: input.cell ? `${input.sheet}!${input.cell}` : "(general)", comment: input.comment, version: file.current_version },
+      details: { annotationId: r.rows[0].id, stage: review.stage === "QA" ? "QA department" : "Department manager", cell: input.cell ? `${input.sheet}!${input.cell}` : "(general)", comment: input.comment, version: file.current_version },
     });
     return { id: r.rows[0].id };
   });

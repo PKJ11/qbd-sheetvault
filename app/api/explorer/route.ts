@@ -44,7 +44,7 @@ export const GET = route(async (req) => {
     `SELECT f.id, f.folder_id, f.name, f.status, f.current_version, f.size_bytes, f.updated_at, f.created_at, f.owner_id,
             u.full_name AS owner, f.inherit_permissions,
             (SELECT count(*)::int FROM annotations a WHERE a.file_id = f.id AND a.status <> 'CLOSED') AS open_annotations,
-            (SELECT ru.full_name FROM reviews r JOIN users ru ON ru.id = r.reviewer_id
+            (SELECT COALESCE(ru.full_name, 'QA department') FROM reviews r LEFT JOIN users ru ON ru.id = r.reviewer_id
               WHERE r.file_id = f.id AND r.decision IS NULL ORDER BY r.id DESC LIMIT 1) AS reviewer
      FROM files f JOIN users u ON u.id = f.owner_id
      WHERE f.folder_id = $1 AND f.deleted_at IS NULL

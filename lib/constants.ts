@@ -33,11 +33,21 @@ export const PERM_KEYS = Object.keys(PERMS) as Perm[];
 
 export const FILE_STATUS = {
   DRAFT: { label: "Draft", color: "#6b7280", bg: "#f3f4f6" },
-  IN_REVIEW: { label: "In Review", color: "#1d4ed8", bg: "#dbeafe" },
+  IN_REVIEW: { label: "Manager Review", color: "#1d4ed8", bg: "#dbeafe" },
+  QA_REVIEW: { label: "QA Review", color: "#6d28d9", bg: "#ede9fe" },
   CHANGES_REQUESTED: { label: "Changes Requested", color: "#b45309", bg: "#fef3c7" },
   APPROVED: { label: "Approved", color: "#166534", bg: "#dcfce7" },
 } as const;
 export type FileStatus = keyof typeof FILE_STATUS;
+
+// Two-stage approval: a manager of the author's department approves first, then anyone in QA.
+// A QA member is a user with the QA role or whose department is QA_DEPARTMENT.
+export const QA_DEPARTMENT = "Quality Assurance";
+export const REVIEW_STAGE = {
+  MANAGER: "Department manager",
+  QA: "QA department",
+} as const;
+export type ReviewStage = keyof typeof REVIEW_STAGE;
 
 export const PRINCIPAL_TYPES = ["user", "role", "department", "everyone"] as const;
 export type PrincipalType = (typeof PRINCIPAL_TYPES)[number];

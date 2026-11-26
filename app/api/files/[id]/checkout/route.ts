@@ -17,7 +17,7 @@ export const POST = route<Ctx>(async (_req, { params }) => {
   const session = await tx(async (db) => {
     const { file } = await fileAccess(u, id, "edit", db, true);
     if (file.status !== "DRAFT" && file.status !== "CHANGES_REQUESTED")
-      throw new HttpError(409, file.status === "IN_REVIEW" ? "This file is locked while it is under review." : "Approved files are read-only. Start a new revision to make changes.");
+      throw new HttpError(409, file.status === "APPROVED" ? "QA-approved files are locked permanently and can't be changed." : "This file is locked while it is under review.");
     const existing = await activeSession(id, db, true);
     if (existing) {
       if (existing.user_id === u.id) return { id: existing.id, resumed: true };

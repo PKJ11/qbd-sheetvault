@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS files (
   name                TEXT NOT NULL,
   owner_id            INT NOT NULL REFERENCES users(id),
   status              TEXT NOT NULL DEFAULT 'DRAFT'
-                      CHECK (status IN ('DRAFT','IN_REVIEW','CHANGES_REQUESTED','APPROVED')),
+                      CHECK (status IN ('DRAFT','IN_REVIEW','QA_REVIEW','CHANGES_REQUESTED','APPROVED')),
   current_version     INT NOT NULL DEFAULT 1,
   review_cycle        INT NOT NULL DEFAULT 0,
   inherit_permissions BOOLEAN NOT NULL DEFAULT TRUE,
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS reviews (
   submitted_by     INT NOT NULL REFERENCES users(id),
   submitted_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   submit_comment   TEXT,
-  reviewer_id      INT NOT NULL REFERENCES users(id),
+  reviewer_id      INT REFERENCES users(id),
   decision         TEXT CHECK (decision IN ('APPROVED','CHANGES_REQUESTED','WITHDRAWN')),
   decided_at       TIMESTAMPTZ,
   decision_comment TEXT
@@ -209,3 +209,25 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS audit_log_no_update ON audit_log;
 CREATE TRIGGER audit_log_no_update BEFORE UPDATE OR DELETE ON audit_log
   FOR EACH ROW EXECUTE FUNCTION audit_log_immutable();
+
+-- ---------------------------------------------------------------------------
+-- Two-stage approval: department manager, then QA department. Applied to existing databases too.
+--   files.status    QA_REVIEW = approved by the department manager, waiting for QA
+--   reviews.stage   MANAGER (assigned to one manager of the author's department) | QA (any QA member;
+--                   reviewer_id stays NULL until a QA member decides)
+--   files.source_file_id  the QC workbook a QA-approved copy was filed from
+--   folders.system_key    QC | TEMPLATES | QA - folders the workflow relies on (can't be deleted or renamed)
+-- ---------------------------------------------------------------------------
+ALTER TABLE files DROP CONSTRAINT IF EXISTS files_status_check;
+ALTER TABLE files ADD CONSTRAINT files_status_check
+  CHECK (status IN ('DRAFT','IN_REVIEW','QA_REVIEW','CHANGES_REQUESTED','APPROVED'));
+ALTER TABLE files ADD COLUMN IF NOT EXISTS source_file_id INT REFERENCES files(id);
+CREATE INDEX IF NOT EXISTS files_source_idx ON files (source_file_id) WHERE source_file_id IS NOT NULL;
+
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'MANAGER';
+ALTER TABLE reviews DROP CONSTRAINT IF EXISTS reviews_stage_check;
+ALTER TABLE reviews ADD CONSTRAINT reviews_stage_check CHECK (stage IN ('MANAGER','QA'));
+ALTER TABLE reviews ALTER COLUMN reviewer_id DROP NOT NULL;
+
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS system_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS folders_system_key_uq ON folders (system_key) WHERE system_key IS NOT NULL;

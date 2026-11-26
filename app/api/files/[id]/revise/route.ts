@@ -1,30 +1,13 @@
-import { writeAudit } from "@/lib/audit";
-import { actorOf, requireUser } from "@/lib/auth";
-import { tx } from "@/lib/db";
-import { fileAccess, requireReason } from "@/lib/files";
-import { body, HttpError, intParam, json, route } from "@/lib/http";
+import { requireUser } from "@/lib/auth";
+import { fileAccess } from "@/lib/files";
+import { HttpError, intParam, route } from "@/lib/http";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// Re-open an approved file as a draft for a new revision. History and approvals are kept.
-export const POST = route<Ctx>(async (req, { params }) => {
+// QA-approved workbooks are final: nobody can reopen them. Start a new workbook from a validated template instead.
+// Kept so old clients get a clear answer instead of a 404.
+export const POST = route<Ctx>(async (_req, { params }) => {
   const u = await requireUser();
-  const id = intParam((await params).id);
-  const { reason: raw } = (await body<{ reason?: string }>(req)) ?? {};
-  const reason = requireReason(raw, "A reason for revision");
-  const actor = await actorOf(u);
-  await tx(async (db) => {
-    const { file } = await fileAccess(u, id, "edit", db, true);
-    if (file.status !== "APPROVED") throw new HttpError(409, "Only approved files can be revised.");
-    await db.query("UPDATE files SET status = 'DRAFT', updated_at = now(), updated_by = $2 WHERE id = $1", [id, u.id]);
-    await writeAudit(db, actor, {
-      action: "REVISION_STARTED",
-      entityType: "file",
-      entityId: id,
-      entityName: file.name,
-      reason,
-      details: { approvedVersion: file.current_version, statusFrom: "APPROVED", statusTo: "DRAFT" },
-    });
-  });
-  return json({ ok: true });
+  await fileAccess(u, intParam((await params).id), "read");
+  throw new HttpError(409, "QA-approved workbooks are locked permanently and can't be reopened. Create a new workbook from a validated template instead.");
 });
